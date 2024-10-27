@@ -1,11 +1,20 @@
 import os
+import logging
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
 from typing import List, Dict
 
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 class EmailNotifier:
     def __init__(self):
-        self.sg = SendGridAPIClient(api_key=os.environ['SENDGRID_API_KEY'])
+        try:
+            self.sg = SendGridAPIClient(api_key=os.environ['SENDGRID_API_KEY'])
+        except Exception as e:
+            logger.error(f"Failed to initialize SendGrid client: {str(e)}")
+            raise
         
     def send_job_match_notification(self, user_email: str, matched_jobs: List[Dict]) -> bool:
         """
@@ -19,17 +28,26 @@ class EmailNotifier:
             bool: True if email sent successfully, False otherwise
         """
         try:
+            # Input validation
+            if not user_email or not matched_jobs:
+                logger.error("Invalid input: missing email or matched jobs")
+                return False
+
             # Create email content with HTML formatting
             job_listings = ""
             for job in matched_jobs:
-                job_listings += f"""
-                <div style="margin-bottom: 20px; padding: 15px; border: 1px solid #ddd; border-radius: 5px;">
-                    <h3 style="color: #0066cc; margin: 0;">{job['title']} - {job['company']}</h3>
-                    <p style="color: #666;"><strong>Location:</strong> {job['location']}</p>
-                    <p style="color: #666;"><strong>Match Score:</strong> {job['match_score']}%</p>
-                    <p style="margin-top: 10px;">{job['description'][:200]}...</p>
-                </div>
-                """
+                try:
+                    job_listings += f"""
+                    <div style="margin-bottom: 20px; padding: 15px; border: 1px solid #ddd; border-radius: 5px;">
+                        <h3 style="color: #0066cc; margin: 0;">{job['title']} - {job['company']}</h3>
+                        <p style="color: #666;"><strong>Location:</strong> {job['location']}</p>
+                        <p style="color: #666;"><strong>Match Score:</strong> {job['match_score']}%</p>
+                        <p style="margin-top: 10px;">{job['description'][:200]}...</p>
+                    </div>
+                    """
+                except KeyError as e:
+                    logger.error(f"Missing required job field: {str(e)}")
+                    continue
 
             email_content = f"""
             <html>
@@ -54,8 +72,15 @@ class EmailNotifier:
             )
             
             response = self.sg.send(message)
-            return response.status_code == 202
+            success = response.status_code == 202
+            
+            if success:
+                logger.info(f"Email notification sent successfully to {user_email}")
+            else:
+                logger.error(f"Failed to send email: Status code {response.status_code}")
+            
+            return success
             
         except Exception as e:
-            print(f"Error sending email notification: {str(e)}")
+            logger.error(f"Error sending email notification to {user_email}: {str(e)}")
             return False

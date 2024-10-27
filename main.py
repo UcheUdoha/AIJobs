@@ -5,6 +5,10 @@ from components.match_visualization import render_match_visualization
 from components.email_preferences import render_email_preferences
 from utils.database import Database
 from utils.notification_worker import setup_notification_worker
+from apply_schema_updates import apply_schema_updates
+
+# Apply schema updates
+apply_schema_updates()
 
 # Start notification worker
 setup_notification_worker()
