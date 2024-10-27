@@ -3,6 +3,7 @@ from components.resume_upload import render_resume_upload
 from components.job_search import render_job_search
 from components.match_visualization import render_match_visualization
 from components.email_preferences import render_email_preferences
+from components.analytics_dashboard import render_analytics_dashboard
 from utils.database import Database
 from utils.notification_worker import setup_notification_worker
 from utils.scraping_worker import setup_scraping_worker
@@ -32,7 +33,7 @@ if 'user_id' not in st.session_state:
 
 # Sidebar navigation
 st.sidebar.title("Navigation")
-page = st.sidebar.radio("Go to", ["Upload Resume", "Job Search", "Saved Jobs", "Email Settings"])
+page = st.sidebar.radio("Go to", ["Upload Resume", "Job Search", "Saved Jobs", "Analytics Dashboard", "Email Settings"])
 
 # Main content
 st.title("Job Match Pro")
@@ -46,6 +47,9 @@ elif page == "Job Search":
     
 elif page == "Email Settings":
     render_email_preferences()
+    
+elif page == "Analytics Dashboard":
+    render_analytics_dashboard()
     
 else:  # Saved Jobs
     st.header("Saved Jobs")

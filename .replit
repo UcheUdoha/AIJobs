@@ -51,7 +51,7 @@ agentRequireRestartOnSave = false
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "streamlit run main.py"
+args = "streamlit run main.py --server.address=0.0.0.0 --server.port=5000"
 waitForPort = 5000
 
 [[workflows.workflow]]
@@ -74,7 +74,7 @@ agentRequireRestartOnSave = false
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "python initialize_nlp.py"
+args = "python -m spacy download en_core_web_sm --no-deps"
 
 [[workflows.workflow]]
 name = "Job Scraper"
@@ -93,3 +93,7 @@ run = ["sh", "-c", "python -m spacy download en_core_web_sm"]
 [[ports]]
 localPort = 5000
 externalPort = 80
+
+[[ports]]
+localPort = 8501
+externalPort = 3000
