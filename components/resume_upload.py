@@ -34,42 +34,55 @@ def render_resume_upload():
             return
             
         # Extract text based on file type
-        if uploaded_file.name.lower().endswith('.pdf'):
-            resume_text = extract_text_from_pdf(uploaded_file)
-        else:  # docx
-            resume_text = extract_text_from_docx(uploaded_file)
-        
-        # Process resume
-        nlp_processor = NLPProcessor()
-        skills = nlp_processor.extract_skills(resume_text)
-        location = nlp_processor.extract_location(resume_text)
-        
-        # Store in session state
-        st.session_state['resume_text'] = resume_text
-        st.session_state['skills'] = skills
-        st.session_state['resume_location'] = location
-        st.session_state['resume_file_path'] = file_path
-        
-        # Display extracted information
-        st.subheader("Extracted Information")
-        st.write("**Skills:**", ", ".join(skills))
-        if location:
-            st.write("**Location:**", location)
-        
-        # Preview uploaded resume
-        with st.expander("Preview Resume Text"):
-            st.text_area("Resume Content", resume_text, height=300)
-        
-        # Save to database
-        if st.button("Save Resume"):
-            db = Database()
-            user_id = st.session_state.get('user_id', 1)  # Default user_id for demo
-            resume_id = db.save_resume(
-                user_id=user_id,
-                resume_text=resume_text,
-                extracted_skills=list(skills),
-                location=location,
-                file_path=file_path,
-                file_type=uploaded_file.name.split('.')[-1].lower()
-            )
-            st.success(f"Resume saved successfully! ID: {resume_id}")
+        try:
+            if uploaded_file.name.lower().endswith('.pdf'):
+                resume_text = extract_text_from_pdf(uploaded_file)
+            else:  # docx
+                resume_text = extract_text_from_docx(uploaded_file)
+            
+            # Process resume
+            nlp_processor = NLPProcessor()
+            skills = nlp_processor.extract_skills(resume_text)
+            
+            # Handle location extraction with error handling
+            try:
+                location = nlp_processor.extract_location(resume_text)
+                if location is None:
+                    st.warning("Could not automatically detect location from resume. You can manually specify it during job search.")
+                    location = ""
+            except Exception as e:
+                st.warning("Error detecting location. You can manually specify it during job search.")
+                location = ""
+            
+            # Store in session state
+            st.session_state['resume_text'] = resume_text
+            st.session_state['skills'] = skills
+            st.session_state['resume_location'] = location
+            st.session_state['resume_file_path'] = file_path
+            
+            # Display extracted information
+            st.subheader("Extracted Information")
+            st.write("**Skills:**", ", ".join(skills))
+            if location:
+                st.write("**Location:**", location)
+            
+            # Preview uploaded resume
+            with st.expander("Preview Resume Text"):
+                st.text_area("Resume Content", resume_text, height=300)
+            
+            # Save to database
+            if st.button("Save Resume"):
+                db = Database()
+                user_id = st.session_state.get('user_id', 1)  # Default user_id for demo
+                resume_id = db.save_resume(
+                    user_id=user_id,
+                    resume_text=resume_text,
+                    extracted_skills=list(skills),
+                    location=location,
+                    file_path=file_path,
+                    file_type=uploaded_file.name.split('.')[-1].lower()
+                )
+                st.success(f"Resume saved successfully! ID: {resume_id}")
+                
+        except Exception as e:
+            st.error(f"Error processing resume: {str(e)}")
