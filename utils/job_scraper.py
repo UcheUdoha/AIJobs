@@ -4,6 +4,9 @@ from datetime import datetime
 from typing import List, Dict, Optional
 from utils.database import Database
 from utils.selenium_scraper import SeleniumScraper
+from utils.web_scraper import get_page_content, extract_job_data_from_html
+import time
+import random
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -60,13 +63,36 @@ class JobScraper:
         except Exception as e:
             logger.error(f"Error updating last scraped timestamp: {str(e)}")
             self.db.conn.rollback()
+
+    def scrape_with_fallback(self, url: str, config: Dict) -> List[Dict]:
+        """Try scraping with Selenium first, fallback to basic scraping if it fails"""
+        jobs = []
+        
+        # Try Selenium first
+        try:
+            if not self.selenium_scraper:
+                self.selenium_scraper = SeleniumScraper()
+            jobs = self.selenium_scraper.scrape_jobs(url, config)
+        except Exception as e:
+            logger.error(f"Selenium scraping failed: {str(e)}")
+            
+        # If Selenium fails or returns no jobs, try fallback method
+        if not jobs:
+            logger.info("Falling back to basic web scraping")
+            try:
+                html_content = get_page_content(url)
+                if html_content:
+                    job_data = extract_job_data_from_html(html_content, config)
+                    if job_data:
+                        jobs.append(job_data)
+            except Exception as e:
+                logger.error(f"Fallback scraping failed: {str(e)}")
+        
+        return jobs
     
     def scrape_jobs(self) -> None:
         """Main job scraping function"""
         try:
-            # Initialize Selenium scraper
-            self.selenium_scraper = SeleniumScraper()
-            
             sources = self.get_active_sources()
             logger.info(f"Found {len(sources)} active sources to scrape")
             
@@ -74,8 +100,11 @@ class JobScraper:
                 try:
                     logger.info(f"Scraping jobs from {source['name']}")
                     
-                    # Extract jobs using Selenium
-                    jobs = self.selenium_scraper.scrape_jobs(
+                    # Add random delay between sources
+                    time.sleep(random.uniform(2, 5))
+                    
+                    # Scrape jobs with fallback mechanism
+                    jobs = self.scrape_with_fallback(
                         source['url'],
                         source['scraping_config']
                     )
