@@ -30,8 +30,9 @@ if 'user_id' not in st.session_state:
 
 # Sidebar navigation
 st.sidebar.title("Navigation")
-page = st.sidebar.radio("Go to", ["Upload Resume", "Job Search", "Saved Jobs", "Email Settings"])
+page = st.sidebar.selectbox("Go to", ["Upload Resume", "Job Search", "Saved Jobs", "Email Settings"])
 
+# Render selected page
 if page == "Upload Resume":
     render_resume_upload()
     

@@ -3,7 +3,7 @@ import logging
 import time
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
-from typing import List, Dict
+from typing import List, Dict, Tuple
 from sendgrid.base_interface import BaseInterface
 from python_http_client import exceptions
 
@@ -17,12 +17,46 @@ class EmailNotifier:
             self.sg = SendGridAPIClient(api_key=os.environ['SENDGRID_API_KEY'])
             self.max_retries = max_retries
             self.retry_delay = retry_delay
+            self.verified = self._check_sender_verification()
         except Exception as e:
             logger.error(f"Failed to initialize SendGrid client: {str(e)}")
             raise
 
-    def send_with_retry(self, message: Mail) -> tuple[bool, str]:
-        """Send email with retry mechanism"""
+    def _check_sender_verification(self) -> bool:
+        """Check if the sender email is verified with SendGrid"""
+        try:
+            # Try to get sender verification status
+            response = self.sg.client.verify.send.get()
+            logger.info(f"Verification status check response: {response.status_code}")
+            return response.status_code == 200
+        except exceptions.ForbiddenError:
+            logger.warning("SendGrid account requires verification")
+            return False
+        except Exception as e:
+            logger.error(f"Error checking sender verification: {str(e)}")
+            return False
+
+    def get_verification_status(self) -> Tuple[bool, str]:
+        """Get current verification status and message"""
+        verified = self._check_sender_verification()
+        message = (
+            "Email system is ready"
+            if verified else
+            "Your SendGrid account needs to be verified before sending emails. "
+            "Please check your email for verification instructions or contact your administrator. "
+            "Visit https://app.sendgrid.com/settings/sender_auth to complete verification."
+        )
+        return verified, message
+
+    def send_with_retry(self, message: Mail) -> Tuple[bool, str]:
+        """Send email with retry mechanism and verification check"""
+        # First check verification status
+        if not self._check_sender_verification():
+            return False, (
+                "SendGrid account is not verified. Please check your email for verification "
+                "instructions or visit https://app.sendgrid.com/settings/sender_auth"
+            )
+
         for attempt in range(self.max_retries):
             try:
                 response = self.sg.send(message)
@@ -38,12 +72,15 @@ class EmailNotifier:
                 return False, error_msg
                 
             except exceptions.UnauthorizedError:
-                error_msg = "Invalid SendGrid API key"
+                error_msg = "Invalid SendGrid API key. Please check your configuration."
                 logger.error(f"Attempt {attempt + 1}: {error_msg}")
                 return False, error_msg
                 
             except exceptions.ForbiddenError:
-                error_msg = "SendGrid account requires verification or has been blocked"
+                error_msg = (
+                    "SendGrid account requires verification. Please check your email for "
+                    "verification instructions or visit https://app.sendgrid.com/settings/sender_auth"
+                )
                 logger.error(f"Attempt {attempt + 1}: {error_msg}")
                 return False, error_msg
                 
@@ -56,9 +93,16 @@ class EmailNotifier:
                 
         return False, f"Failed to send email after {self.max_retries} attempts"
 
-    def send_job_match_notification(self, user_email: str, matched_jobs: List[Dict]) -> tuple[bool, str]:
+    def send_job_match_notification(self, user_email: str, matched_jobs: List[Dict]) -> Tuple[bool, str]:
         """Send email notification for matching jobs with enhanced error handling"""
         try:
+            # Check verification status first
+            if not self._check_sender_verification():
+                return False, (
+                    "SendGrid account is not verified. Please check your email for verification "
+                    "instructions or visit https://app.sendgrid.com/settings/sender_auth"
+                )
+
             # Input validation
             if not user_email or not matched_jobs:
                 return False, "Invalid input: missing email or matched jobs"

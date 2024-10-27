@@ -14,13 +14,29 @@ def render_email_preferences():
     db = Database()
     user_id = st.session_state.get('user_id', 1)
     
+    # Check SendGrid verification status
+    try:
+        notifier = EmailNotifier()
+        is_verified, verification_message = notifier.get_verification_status()
+        
+        if not is_verified:
+            st.warning(
+                verification_message + "\n\n"
+                "While verification is pending, email notifications will not be sent. "
+                "This won't affect your ability to save preferences."
+            )
+    except Exception as e:
+        st.error(f"Error connecting to email service: {str(e)}")
+        return
+    
     # Get current preferences
     preferences = db.get_email_preferences(user_id)
     
     # Email notification toggle
     is_enabled = st.toggle(
         "Enable email notifications for matching jobs",
-        value=preferences['is_enabled']
+        value=preferences['is_enabled'],
+        help="Toggle email notifications on/off"
     )
     
     # Minimum match score slider
@@ -70,9 +86,15 @@ def render_email_preferences():
             if not is_valid_email(user_email):
                 st.error("Invalid email address. Please update your email")
                 return
+            
+            if not is_verified:
+                st.error(
+                    "Cannot send test email: SendGrid account needs verification. "
+                    "Please check verification status above."
+                )
+                return
                 
             with st.spinner("Sending test email..."):
-                notifier = EmailNotifier()
                 test_job = {
                     'title': 'Test Job Position',
                     'company': 'Test Company',
@@ -87,7 +109,23 @@ def render_email_preferences():
                 else:
                     st.error(f"Failed to send test email: {message}")
     
-    # Display current email status
+    # Display verification and email status information
+    st.markdown("---")
+    st.subheader("Email System Status")
+    
+    if is_verified:
+        st.success("✅ Email system is verified and ready to send notifications")
+    else:
+        st.warning(
+            "⚠️ Email system verification pending\n\n"
+            "Please follow these steps to complete verification:\n"
+            "1. Check your email for verification instructions from SendGrid\n"
+            "2. Click the verification link in the email\n"
+            "3. If you haven't received the email, visit the [SendGrid Sender Verification](https://app.sendgrid.com/settings/sender_auth) page\n"
+            "4. Complete the verification process\n"
+            "5. Return to this page and refresh to update the status"
+        )
+    
     if user_email:
         st.info(f"Current notification email: {user_email}")
     else:
