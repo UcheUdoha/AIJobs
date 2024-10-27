@@ -1,5 +1,5 @@
 -- Add email notification preferences table
-CREATE TABLE email_preferences (
+CREATE TABLE IF NOT EXISTS email_preferences (
     id SERIAL PRIMARY KEY,
     user_id INTEGER REFERENCES users(id),
     is_enabled BOOLEAN DEFAULT true,
@@ -9,7 +9,7 @@ CREATE TABLE email_preferences (
 );
 
 -- Add job matches table to track which jobs have been notified
-CREATE TABLE job_matches (
+CREATE TABLE IF NOT EXISTS job_matches (
     id SERIAL PRIMARY KEY,
     user_id INTEGER REFERENCES users(id),
     job_id INTEGER REFERENCES jobs(id),
