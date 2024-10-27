@@ -5,13 +5,15 @@ from components.match_visualization import render_match_visualization
 from components.email_preferences import render_email_preferences
 from utils.database import Database
 from utils.notification_worker import setup_notification_worker
+from utils.scraping_worker import setup_scraping_worker
 from apply_schema_updates import apply_schema_updates
 
 # Apply schema updates
 apply_schema_updates()
 
-# Start notification worker
+# Start workers
 setup_notification_worker()
+setup_scraping_worker()
 
 # Page configuration
 st.set_page_config(
@@ -30,7 +32,10 @@ if 'user_id' not in st.session_state:
 
 # Sidebar navigation
 st.sidebar.title("Navigation")
-page = st.sidebar.selectbox("Go to", ["Upload Resume", "Job Search", "Saved Jobs", "Email Settings"])
+page = st.sidebar.radio("Go to", ["Upload Resume", "Job Search", "Saved Jobs", "Email Settings"])
+
+# Main content
+st.title("Job Match Pro")
 
 # Render selected page
 if page == "Upload Resume":

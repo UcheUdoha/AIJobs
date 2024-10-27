@@ -144,6 +144,38 @@ class Database:
             cur.execute(query, params)
             return cur.fetchall()
 
+    def get_bookmarks(self, user_id: int) -> List[Dict]:
+        """Get user's bookmarked jobs"""
+        try:
+            with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT j.*
+                    FROM jobs j
+                    JOIN bookmarks b ON j.id = b.job_id
+                    WHERE b.user_id = %s
+                    ORDER BY b.created_at DESC
+                """, (user_id,))
+                return cur.fetchall()
+        except Exception as e:
+            print(f"Error getting bookmarks: {str(e)}")
+            return []
+
+    def save_bookmark(self, user_id: int, job_id: int) -> bool:
+        """Save a job bookmark"""
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO bookmarks (user_id, job_id)
+                    VALUES (%s, %s)
+                    ON CONFLICT (user_id, job_id) DO NOTHING
+                """, (user_id, job_id))
+                self.conn.commit()
+                return True
+        except Exception as e:
+            print(f"Error saving bookmark: {str(e)}")
+            self.conn.rollback()
+            return False
+
     def get_unnotified_matches(self, user_id: int, min_score: float) -> List[Dict]:
         """Get unnotified job matches above minimum score"""
         with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -176,3 +208,18 @@ class Database:
                 (user_id, job_ids)
             )
             self.conn.commit()
+
+    def save_job_match(self, user_id: int, job_id: int, match_score: float) -> None:
+        """Save or update job match score"""
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO job_matches (user_id, job_id, match_score)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (user_id, job_id)
+                    DO UPDATE SET match_score = EXCLUDED.match_score
+                """, (user_id, job_id, match_score))
+                self.conn.commit()
+        except Exception as e:
+            print(f"Error saving job match: {str(e)}")
+            self.conn.rollback()

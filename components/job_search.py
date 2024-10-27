@@ -15,16 +15,42 @@ def render_job_search():
         resume_location = st.session_state['resume_location']
     
     # Search filters
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
     with col1:
         search_query = st.text_input("Search by job title or keywords")
     with col2:
         # Auto-fill location from resume if available
         default_location = resume_location if resume_location else ""
-        location = st.text_input("Location", value=default_location)
+        location = st.text_input("City/Region", value=default_location)
+    with col3:
+        # Country selection with Remote option
+        countries = [
+            "Any Location", "Remote", "United States", "United Kingdom", "Canada", 
+            "Germany", "France", "Australia", "India", "Singapore", "Japan", 
+            "Other European Countries", "Other Asian Countries"
+        ]
+        country = st.selectbox("Country/Region", countries)
         
+    # Additional filters
+    col1, col2 = st.columns(2)
+    with col1:
+        remote_only = st.checkbox("Show only remote jobs")
+    with col2:
+        international_willing = st.checkbox("Include jobs with visa sponsorship")
+    
+    # Prepare location filter
+    filter_location = location
+    if country and country != "Any Location":
+        if filter_location:
+            filter_location = f"{filter_location}, {country}"
+        else:
+            filter_location = country
+    
+    if remote_only:
+        filter_location = "Remote"
+    
     # Get jobs from database with location matching
-    jobs = db.get_jobs(search_query, location, resume_location)
+    jobs = db.get_jobs(search_query, filter_location, resume_location)
     
     # Calculate match scores if resume is uploaded
     if 'resume_text' in st.session_state:
@@ -54,17 +80,34 @@ def render_job_search():
         jobs = sorted(jobs, key=lambda x: x['overall_score'], reverse=True)
     
     # Display jobs
+    if not jobs:
+        st.info("No jobs found matching your criteria. Try adjusting your filters.")
+        return
+        
+    st.write(f"Found {len(jobs)} matching jobs")
+    
     for job in jobs:
         with st.expander(f"{job['title']} - {job['company']}"):
             col1, col2 = st.columns([3, 1])
             
             with col1:
-                st.write(f"**Location:** {job['location']}")
+                # Enhanced location display
+                location_text = job['location']
+                if 'remote' in location_text.lower():
+                    st.write("📍 **Location:** 🌐 Remote", end="")
+                    if "in" in location_text.lower():
+                        st.write(f" ({location_text.split('in')[1].strip()})")
+                else:
+                    st.write(f"📍 **Location:** {location_text}")
+                
                 st.write(f"**Description:**\n{job['description']}")
                 
                 if 'matching_skills' in job and job['matching_skills']:
-                    st.write("**Matching Skills:**")
+                    st.write("🔍 **Matching Skills:**")
                     st.write(", ".join(job['matching_skills']))
+                
+                if job.get('url'):
+                    st.write(f"🔗 **Job URL:** [{job['url']}]({job['url']})")
                 
             with col2:
                 if 'overall_score' in job:

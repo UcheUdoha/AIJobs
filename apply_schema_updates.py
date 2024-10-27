@@ -40,7 +40,11 @@ def split_sql_commands(sql_file):
 def apply_schema_updates():
     """Apply database schema updates with error handling"""
     db = Database()
-    sql_files = ['schema_updates_email.sql']
+    sql_files = [
+        'schema_updates_email.sql',
+        'schema_updates_scraping.sql',
+        'sample_job_sources.sql'
+    ]
     
     try:
         for sql_file in sql_files:
