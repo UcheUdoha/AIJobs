@@ -1,4 +1,4 @@
-from sentence_transformers import SentenceTransformer
+from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 from typing import List, Dict
@@ -6,8 +6,12 @@ import re
 
 class AdvancedMatcher:
     def __init__(self):
-        # Initialize BERT model for semantic embeddings
-        self.model = SentenceTransformer('paraphrase-MiniLM-L6-v2')
+        # Initialize TF-IDF vectorizer with custom parameters
+        self.vectorizer = TfidfVectorizer(
+            stop_words='english',
+            ngram_range=(1, 2),  # Consider both unigrams and bigrams
+            max_features=1000
+        )
         
     def preprocess_text(self, text: str) -> str:
         """Clean and standardize input text"""
@@ -17,10 +21,6 @@ class AdvancedMatcher:
         text = ' '.join(text.split())
         return text
         
-    def get_text_embedding(self, text: str) -> np.ndarray:
-        """Generate embedding vector for text using BERT"""
-        return self.model.encode([text])[0]
-        
     def extract_skills(self, text: str) -> List[str]:
         """Extract skills from text using keyword-based approach with common tech terms"""
         # Common technical skills and frameworks
@@ -28,7 +28,10 @@ class AdvancedMatcher:
             'python', 'java', 'javascript', 'react', 'node', 'sql', 'docker',
             'kubernetes', 'aws', 'azure', 'git', 'agile', 'scrum', 'ml',
             'ai', 'data science', 'machine learning', 'devops', 'cloud',
-            'frontend', 'backend', 'fullstack', 'testing', 'ci/cd'
+            'frontend', 'backend', 'fullstack', 'testing', 'ci/cd',
+            'html', 'css', 'rest api', 'mongodb', 'postgresql', 'mysql',
+            'typescript', 'ruby', 'php', 'c++', 'scala', 'rust', 'golang',
+            'tensorflow', 'pytorch', 'pandas', 'numpy', 'spring boot'
         }
         
         # Preprocess text
@@ -49,21 +52,20 @@ class AdvancedMatcher:
                     
         return list(found_skills)
         
+    def calculate_semantic_similarity(self, text1: str, text2: str) -> float:
+        """Calculate semantic similarity using TF-IDF and cosine similarity"""
+        # Fit and transform the texts
+        tfidf_matrix = self.vectorizer.fit_transform([text1, text2])
+        return float(cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:2])[0][0])
+        
     def calculate_match_score(self, resume_text: str, job_description: str) -> Dict:
         """Calculate comprehensive match score using multiple factors"""
         # Preprocess texts
         resume_text = self.preprocess_text(resume_text)
         job_description = self.preprocess_text(job_description)
         
-        # Get embeddings for semantic similarity
-        resume_embedding = self.get_text_embedding(resume_text)
-        job_embedding = self.get_text_embedding(job_description)
-        
-        # Calculate semantic similarity using cosine similarity
-        semantic_score = float(cosine_similarity(
-            resume_embedding.reshape(1, -1), 
-            job_embedding.reshape(1, -1)
-        )[0][0])
+        # Calculate semantic similarity using TF-IDF
+        semantic_score = self.calculate_semantic_similarity(resume_text, job_description)
         
         # Extract and compare skills
         resume_skills = set(self.extract_skills(resume_text))
@@ -86,7 +88,11 @@ class AdvancedMatcher:
         if job_years and resume_years:
             job_exp = max(job_years)
             resume_exp = max(resume_years)
-            exp_score = min(resume_exp / max(job_exp, 1), 1.0)
+            # Calculate experience match score with some flexibility
+            if resume_exp >= job_exp:
+                exp_score = 1.0
+            else:
+                exp_score = resume_exp / max(job_exp, 1)
         
         # Calculate final weighted score
         weights = {
