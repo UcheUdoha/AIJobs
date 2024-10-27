@@ -1,6 +1,8 @@
 import streamlit as st
 from utils.database import Database
-from utils.text_similarity import TextSimilarity
+from utils.advanced_matcher import AdvancedMatcher
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 def render_job_search():
     st.header("Job Search")
@@ -18,17 +20,17 @@ def render_job_search():
     
     # Calculate match scores if resume is uploaded
     if 'resume_text' in st.session_state:
-        similarity = TextSimilarity()
+        matcher = AdvancedMatcher()
         
         for job in jobs:
-            match_score = similarity.calculate_match_score(
+            match_results = matcher.calculate_match_score(
                 st.session_state['resume_text'],
                 job['description']
             )
-            job['match_score'] = int(match_score * 100)
+            job.update(match_results)
             
-        # Sort jobs by match score
-        jobs = sorted(jobs, key=lambda x: x['match_score'], reverse=True)
+        # Sort jobs by overall match score
+        jobs = sorted(jobs, key=lambda x: x['overall_score'], reverse=True)
     
     # Display jobs
     for job in jobs:
@@ -39,9 +41,53 @@ def render_job_search():
                 st.write(f"**Location:** {job['location']}")
                 st.write(f"**Description:**\n{job['description']}")
                 
+                if 'matching_skills' in job and job['matching_skills']:
+                    st.write("**Matching Skills:**")
+                    st.write(", ".join(job['matching_skills']))
+                
             with col2:
-                if 'match_score' in job:
-                    st.metric("Match Score", f"{job['match_score']}%")
+                if 'overall_score' in job:
+                    # Create gauge chart for overall score
+                    fig = go.Figure(go.Indicator(
+                        mode="gauge+number",
+                        value=job['overall_score'],
+                        domain={'x': [0, 1], 'y': [0, 1]},
+                        title={'text': "Overall Match"},
+                        gauge={
+                            'axis': {'range': [0, 100]},
+                            'bar': {'color': "rgb(0, 102, 204)"},
+                            'steps': [
+                                {'range': [0, 40], 'color': "rgb(255, 230, 230)"},
+                                {'range': [40, 70], 'color': "rgb(255, 255, 204)"},
+                                {'range': [70, 100], 'color': "rgb(204, 255, 204)"}
+                            ]
+                        }
+                    ))
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                    # Create detailed scores visualization
+                    categories = ['Semantic', 'Skills', 'Experience']
+                    scores = [
+                        job['semantic_score'],
+                        job['skill_score'],
+                        job['experience_match']
+                    ]
+                    
+                    fig = go.Figure()
+                    fig.add_trace(go.Bar(
+                        x=categories,
+                        y=scores,
+                        marker_color=['rgb(99, 110, 250)', 'rgb(239, 85, 59)', 'rgb(0, 204, 150)']
+                    ))
+                    
+                    fig.update_layout(
+                        title="Detailed Match Scores",
+                        yaxis_range=[0, 100],
+                        showlegend=False,
+                        height=200
+                    )
+                    
+                    st.plotly_chart(fig, use_container_width=True)
                 
                 if st.button("Save Job", key=f"save_{job['id']}"):
                     user_id = st.session_state.get('user_id', 1)  # Default user_id for demo

@@ -39,7 +39,7 @@ agentRequireRestartOnSave = false
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "streamlit run main.py"
+args = "OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 streamlit run main.py"
 waitForPort = 5000
 
 [deployment]
