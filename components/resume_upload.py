@@ -42,15 +42,19 @@ def render_resume_upload():
         # Process resume
         nlp_processor = NLPProcessor()
         skills = nlp_processor.extract_skills(resume_text)
+        location = nlp_processor.extract_location(resume_text)
         
         # Store in session state
         st.session_state['resume_text'] = resume_text
         st.session_state['skills'] = skills
+        st.session_state['resume_location'] = location
         st.session_state['resume_file_path'] = file_path
         
         # Display extracted information
-        st.subheader("Extracted Skills")
-        st.write(", ".join(skills))
+        st.subheader("Extracted Information")
+        st.write("**Skills:**", ", ".join(skills))
+        if location:
+            st.write("**Location:**", location)
         
         # Preview uploaded resume
         with st.expander("Preview Resume Text"):
@@ -64,6 +68,7 @@ def render_resume_upload():
                 user_id=user_id,
                 resume_text=resume_text,
                 extracted_skills=list(skills),
+                location=location,
                 file_path=file_path,
                 file_type=uploaded_file.name.split('.')[-1].lower()
             )

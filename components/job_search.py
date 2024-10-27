@@ -7,16 +7,24 @@ from plotly.subplots import make_subplots
 def render_job_search():
     st.header("Job Search")
     
+    # Get user's resume location
+    db = Database()
+    user_id = st.session_state.get('user_id', 1)
+    resume_location = None
+    if 'resume_location' in st.session_state:
+        resume_location = st.session_state['resume_location']
+    
     # Search filters
     col1, col2 = st.columns(2)
     with col1:
         search_query = st.text_input("Search by job title or keywords")
     with col2:
-        location = st.text_input("Location")
+        # Auto-fill location from resume if available
+        default_location = resume_location if resume_location else ""
+        location = st.text_input("Location", value=default_location)
         
-    # Get jobs from database
-    db = Database()
-    jobs = db.get_jobs(search_query, location)
+    # Get jobs from database with location matching
+    jobs = db.get_jobs(search_query, location, resume_location)
     
     # Calculate match scores if resume is uploaded
     if 'resume_text' in st.session_state:
@@ -27,6 +35,16 @@ def render_job_search():
                 st.session_state['resume_text'],
                 job['description']
             )
+            
+            # Include location score in overall match calculation
+            location_score = float(job['location_score'])
+            match_results['location_score'] = round(location_score * 100, 2)
+            
+            # Update overall score to include location matching
+            match_results['overall_score'] = round(
+                (match_results['overall_score'] * 0.7 + location_score * 100 * 0.3), 2
+            )
+            
             job.update(match_results)
             
         # Sort jobs by overall match score
@@ -66,17 +84,18 @@ def render_job_search():
                     st.plotly_chart(fig, use_container_width=True)
                     
                     # Create detailed scores visualization
-                    categories = ['Semantic', 'Skills']
+                    categories = ['Semantic', 'Skills', 'Location']
                     scores = [
                         job['semantic_score'],
-                        job['skill_score']
+                        job['skill_score'],
+                        job['location_score']
                     ]
                     
                     fig = go.Figure()
                     fig.add_trace(go.Bar(
                         x=categories,
                         y=scores,
-                        marker_color=['rgb(99, 110, 250)', 'rgb(239, 85, 59)']
+                        marker_color=['rgb(99, 110, 250)', 'rgb(239, 85, 59)', 'rgb(0, 204, 150)']
                     ))
                     
                     fig.update_layout(
@@ -89,6 +108,5 @@ def render_job_search():
                     st.plotly_chart(fig, use_container_width=True)
                 
                 if st.button("Save Job", key=f"save_{job['id']}"):
-                    user_id = st.session_state.get('user_id', 1)  # Default user_id for demo
                     db.save_bookmark(user_id, job['id'])
                     st.success("Job saved to bookmarks!")
