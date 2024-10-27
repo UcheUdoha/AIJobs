@@ -12,15 +12,15 @@ class Database:
             port=os.environ['PGPORT']
         )
 
-    def save_resume(self, user_id, resume_text, extracted_skills):
+    def save_resume(self, user_id, resume_text, extracted_skills, file_path=None, file_type=None):
         with self.conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO resumes (user_id, resume_text, skills)
-                VALUES (%s, %s, %s)
+                INSERT INTO resumes (user_id, resume_text, skills, file_url, file_type)
+                VALUES (%s, %s, %s, %s, %s)
                 RETURNING id
                 """,
-                (user_id, resume_text, extracted_skills)
+                (user_id, resume_text, extracted_skills, file_path, file_type)
             )
             self.conn.commit()
             return cur.fetchone()[0]
