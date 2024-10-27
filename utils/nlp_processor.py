@@ -1,31 +1,37 @@
-import spacy
+from sklearn.feature_extraction.text import TfidfVectorizer
 from typing import List, Set
 
 class NLPProcessor:
     def __init__(self):
-        self.nlp = spacy.load("en_core_web_sm")
+        self.vectorizer = TfidfVectorizer(stop_words='english', max_features=100)
         
     def extract_skills(self, text: str) -> Set[str]:
-        doc = self.nlp(text.lower())
-        # Common technical skills and keywords
-        skills = set()
+        # Vectorize the text
+        tfidf_matrix = self.vectorizer.fit_transform([text])
         
-        # Extract noun phrases as potential skills
-        for chunk in doc.noun_chunks:
-            if len(chunk.text) > 2:  # Avoid single letters
-                skills.add(chunk.text.strip())
-                
+        # Get feature names (words) and their scores
+        feature_names = self.vectorizer.get_feature_names_out()
+        scores = tfidf_matrix.toarray()[0]
+        
+        # Get words with non-zero TF-IDF scores
+        skills = {word for word, score in zip(feature_names, scores) if score > 0}
         return skills
 
     def calculate_similarity(self, resume_text: str, job_description: str) -> float:
-        resume_doc = self.nlp(resume_text.lower())
-        job_doc = self.nlp(job_description.lower())
+        # Vectorize both texts
+        tfidf_matrix = self.vectorizer.fit_transform([resume_text, job_description])
         
         # Calculate cosine similarity
-        similarity = resume_doc.similarity(job_doc)
+        similarity = (tfidf_matrix * tfidf_matrix.T).A[0][1]
         return float(similarity)
 
     def extract_entities(self, text: str) -> List[tuple]:
-        doc = self.nlp(text)
-        entities = [(ent.text, ent.label_) for ent in doc.ents]
+        # Simple keyword extraction based on TF-IDF scores
+        tfidf_matrix = self.vectorizer.fit_transform([text])
+        feature_names = self.vectorizer.get_feature_names_out()
+        scores = tfidf_matrix.toarray()[0]
+        
+        # Get top scoring words and label them as 'KEYWORD'
+        entities = [(word, 'KEYWORD') for word, score in zip(feature_names, scores) 
+                   if score > 0][:10]  # Limit to top 10 keywords
         return entities
