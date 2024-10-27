@@ -66,18 +66,17 @@ def render_job_search():
                     st.plotly_chart(fig, use_container_width=True)
                     
                     # Create detailed scores visualization
-                    categories = ['Semantic', 'Skills', 'Experience']
+                    categories = ['Semantic', 'Skills']
                     scores = [
                         job['semantic_score'],
-                        job['skill_score'],
-                        job['experience_match']
+                        job['skill_score']
                     ]
                     
                     fig = go.Figure()
                     fig.add_trace(go.Bar(
                         x=categories,
                         y=scores,
-                        marker_color=['rgb(99, 110, 250)', 'rgb(239, 85, 59)', 'rgb(0, 204, 150)']
+                        marker_color=['rgb(99, 110, 250)', 'rgb(239, 85, 59)']
                     ))
                     
                     fig.update_layout(
