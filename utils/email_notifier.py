@@ -1,37 +1,67 @@
 import os
 import logging
+import time
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
 from typing import List, Dict
+from sendgrid.base_interface import BaseInterface
+from python_http_client import exceptions
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class EmailNotifier:
-    def __init__(self):
+    def __init__(self, max_retries: int = 3, retry_delay: int = 2):
         try:
             self.sg = SendGridAPIClient(api_key=os.environ['SENDGRID_API_KEY'])
+            self.max_retries = max_retries
+            self.retry_delay = retry_delay
         except Exception as e:
             logger.error(f"Failed to initialize SendGrid client: {str(e)}")
             raise
-        
-    def send_job_match_notification(self, user_email: str, matched_jobs: List[Dict]) -> bool:
-        """
-        Send email notification for matching jobs
-        
-        Args:
-            user_email (str): Recipient's email address
-            matched_jobs (List[Dict]): List of matching jobs with their scores
-            
-        Returns:
-            bool: True if email sent successfully, False otherwise
-        """
+
+    def send_with_retry(self, message: Mail) -> tuple[bool, str]:
+        """Send email with retry mechanism"""
+        for attempt in range(self.max_retries):
+            try:
+                response = self.sg.send(message)
+                if response.status_code == 202:
+                    logger.info(f"Email sent successfully on attempt {attempt + 1}")
+                    return True, "Email sent successfully"
+                else:
+                    logger.warning(f"Unexpected status code {response.status_code} on attempt {attempt + 1}")
+                    
+            except exceptions.BadRequestsError as e:
+                error_msg = f"Bad request error: {str(e.body)}"
+                logger.error(f"Attempt {attempt + 1}: {error_msg}")
+                return False, error_msg
+                
+            except exceptions.UnauthorizedError:
+                error_msg = "Invalid SendGrid API key"
+                logger.error(f"Attempt {attempt + 1}: {error_msg}")
+                return False, error_msg
+                
+            except exceptions.ForbiddenError:
+                error_msg = "SendGrid account requires verification or has been blocked"
+                logger.error(f"Attempt {attempt + 1}: {error_msg}")
+                return False, error_msg
+                
+            except Exception as e:
+                logger.error(f"Attempt {attempt + 1}: Unexpected error: {str(e)}")
+                if attempt < self.max_retries - 1:
+                    time.sleep(self.retry_delay)
+                    continue
+                return False, f"Failed to send email after {self.max_retries} attempts"
+                
+        return False, f"Failed to send email after {self.max_retries} attempts"
+
+    def send_job_match_notification(self, user_email: str, matched_jobs: List[Dict]) -> tuple[bool, str]:
+        """Send email notification for matching jobs with enhanced error handling"""
         try:
             # Input validation
             if not user_email or not matched_jobs:
-                logger.error("Invalid input: missing email or matched jobs")
-                return False
+                return False, "Invalid input: missing email or matched jobs"
 
             # Create email content with HTML formatting
             job_listings = ""
@@ -71,16 +101,9 @@ class EmailNotifier:
                 html_content=email_content
             )
             
-            response = self.sg.send(message)
-            success = response.status_code == 202
-            
-            if success:
-                logger.info(f"Email notification sent successfully to {user_email}")
-            else:
-                logger.error(f"Failed to send email: Status code {response.status_code}")
-            
-            return success
+            return self.send_with_retry(message)
             
         except Exception as e:
-            logger.error(f"Error sending email notification to {user_email}: {str(e)}")
-            return False
+            error_msg = f"Error preparing email notification: {str(e)}"
+            logger.error(error_msg)
+            return False, error_msg
