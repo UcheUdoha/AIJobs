@@ -2,7 +2,12 @@ import streamlit as st
 from components.resume_upload import render_resume_upload
 from components.job_search import render_job_search
 from components.match_visualization import render_match_visualization
+from components.email_preferences import render_email_preferences
 from utils.database import Database
+from utils.notification_worker import setup_notification_worker
+
+# Start notification worker
+setup_notification_worker()
 
 # Page configuration
 st.set_page_config(
@@ -21,13 +26,16 @@ if 'user_id' not in st.session_state:
 
 # Sidebar navigation
 st.sidebar.title("Navigation")
-page = st.sidebar.radio("Go to", ["Upload Resume", "Job Search", "Saved Jobs"])
+page = st.sidebar.radio("Go to", ["Upload Resume", "Job Search", "Saved Jobs", "Email Settings"])
 
 if page == "Upload Resume":
     render_resume_upload()
     
 elif page == "Job Search":
     render_job_search()
+    
+elif page == "Email Settings":
+    render_email_preferences()
     
 else:  # Saved Jobs
     st.header("Saved Jobs")

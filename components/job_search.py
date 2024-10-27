@@ -47,6 +47,9 @@ def render_job_search():
             
             job.update(match_results)
             
+            # Save match score for notifications
+            db.save_job_match(user_id, job['id'], match_results['overall_score'])
+            
         # Sort jobs by overall match score
         jobs = sorted(jobs, key=lambda x: x['overall_score'], reverse=True)
     
