@@ -42,35 +42,42 @@ page = st.sidebar.radio(
 # Main content
 st.title("Job Match Pro")
 
-# Render selected page
+# Render selected page with loading states
 if page == "Upload Resume":
-    render_resume_upload()
-    
+    with st.spinner("Loading resume upload..."):
+        render_resume_upload()
+        
 elif page == "Job Search":
-    render_job_search()
-    
+    with st.spinner("Loading job search..."):
+        render_job_search()
+        
 elif page == "Email Settings":
-    render_email_preferences()
-    
+    with st.spinner("Loading email preferences..."):
+        render_email_preferences()
+        
 elif page == "Analytics Dashboard":
-    render_analytics_dashboard()
-    
+    with st.spinner("Loading analytics..."):
+        render_analytics_dashboard()
+        
 elif page == "Interview Practice":
-    render_interview_practice()
-    
+    with st.spinner("Loading interview practice..."):
+        render_interview_practice()
+        
 else:  # Saved Jobs
-    st.header("Saved Jobs")
-    db = Database()
-    bookmarked_jobs = db.get_bookmarks(st.session_state['user_id'])
-    
-    for job in bookmarked_jobs:
-        with st.expander(f"{job['title']} - {job['company']}"):
-            st.write(f"**Location:** {job['location']}")
-            st.write(f"**Description:**\n{job['description']}")
-            
-            # Show match score if resume is uploaded
-            if 'resume_text' in st.session_state:
-                render_match_visualization(job['description'])
+    with st.spinner("Loading saved jobs..."):
+        st.header("Saved Jobs")
+        db = Database()
+        bookmarked_jobs = db.get_bookmarks(st.session_state['user_id'])
+        
+        for job in bookmarked_jobs:
+            with st.expander(f"{job['title']} - {job['company']}"):
+                st.write(f"**Location:** {job['location']}")
+                st.write(f"**Description:**\n{job['description']}")
+                
+                # Show match score if resume is uploaded
+                if 'resume_text' in st.session_state:
+                    with st.spinner("Calculating match score..."):
+                        render_match_visualization(job['description'])
 
 # Footer
 st.sidebar.markdown("---")
