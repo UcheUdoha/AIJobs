@@ -4,8 +4,8 @@ from utils.database import Database
 from utils.file_handler import FileHandler
 import io
 import logging
-from typing import Tuple, Optional
 import time
+from typing import Tuple, Optional
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -106,25 +106,32 @@ def render_resume_upload():
     4. File should not be password protected
     """)
     
+    # Clear previous error messages when new file is uploaded
+    if 'error_message' in st.session_state:
+        del st.session_state['error_message']
+    
     uploaded_file = st.file_uploader("Choose your resume", type=['pdf', 'docx'])
+    
+    # Status container for processing feedback
+    status_container = st.empty()
+    preview_container = st.empty()
     
     if uploaded_file is not None:
         try:
-            # Show upload status
-            status_container = st.empty()
+            # Show processing status
             status_container.info("Processing your resume...")
             
-            # Validate file type before processing
+            # Validate file type
             file_type = uploaded_file.name.split('.')[-1].lower()
             if file_type not in ['pdf', 'docx']:
-                st.error("Invalid file type. Please upload a PDF or DOCX file.")
+                status_container.error("Invalid file type. Please upload a PDF or DOCX file.")
                 return
-                
+            
             if file_type == 'pdf' and not PDF_SUPPORT:
-                st.error("PDF support is not available. Please upload a DOCX file.")
+                status_container.error("PDF support is not available. Please upload a DOCX file.")
                 return
             elif file_type == 'docx' and not DOCX_SUPPORT:
-                st.error("DOCX support is not available. Please upload a PDF file.")
+                status_container.error("DOCX support is not available. Please upload a PDF file.")
                 return
             
             # Check if preview is already cached
@@ -136,33 +143,38 @@ def render_resume_upload():
                 # Process file
                 start_time = time.time()
                 file_handler = FileHandler()
-                file_path, error = file_handler.save_file(uploaded_file)
                 
-                if error:
-                    st.error(error)
-                    return
+                with st.spinner("Saving file..."):
+                    file_path, error = file_handler.save_file(uploaded_file)
+                    
+                    if error:
+                        status_container.error(error)
+                        return
                 
                 # Extract text based on file type
-                with st.spinner("Loading preview..."):
+                with st.spinner("Extracting text..."):
                     if file_type == 'pdf':
                         resume_text, error = extract_text_from_pdf(uploaded_file)
                     else:  # docx
                         resume_text, error = extract_text_from_docx(uploaded_file)
                 
                 if error:
-                    st.error(error)
+                    status_container.error(error)
+                    logger.error(f"Text extraction error: {error}")
                     return
                 
+                # Validate extracted text
                 if not resume_text or len(resume_text.strip()) == 0:
-                    st.error("Could not extract text from the file. Please ensure the file contains selectable text.")
+                    status_container.error("No text could be extracted from the file. Please ensure the file contains selectable text.")
                     return
                 
                 # Cache the preview content
                 st.session_state[cache_key] = resume_text
             
             # Process resume
-            nlp_processor = NLPProcessor()
-            processed_data = nlp_processor.process_text(resume_text)
+            with st.spinner("Analyzing resume content..."):
+                nlp_processor = NLPProcessor()
+                processed_data = nlp_processor.process_text(resume_text)
             
             # Update status
             status_container.success("Resume processed successfully!")
@@ -190,45 +202,54 @@ def render_resume_upload():
             else:
                 st.info("Location could not be automatically detected. You can specify it during job search.")
             
-            # Processing time
+            # Show processing time
             st.text(f"Processing time: {time.time() - start_time:.2f} seconds")
             
             # Preview uploaded resume with improved error handling
             with st.spinner("Loading preview..."):
-                preview_container = st.empty()
                 try:
                     preview_container.text_area(
-                        "Resume Content Preview", 
-                        resume_text,
+                        "Resume Content Preview",
+                        value=resume_text if resume_text else "No content available",
                         height=300,
-                        disabled=True
+                        disabled=True,
+                        key="resume_preview"
                     )
                 except Exception as e:
-                    st.error(f"Error displaying preview: {str(e)}")
+                    error_msg = f"Error displaying preview: {str(e)}"
+                    st.error(error_msg)
+                    logger.error(f"Preview error: {str(e)}")
             
             # Save to database
             if st.button("Save Resume"):
                 try:
-                    db = Database()
-                    user_id = st.session_state.get('user_id', 1)  # Default user_id for demo
-                    resume_id = db.save_resume(
-                        user_id=user_id,
-                        resume_text=resume_text,
-                        extracted_skills=list(processed_data['skills']),
-                        location=processed_data['location'],
-                        file_path=file_path,
-                        file_type=file_type
-                    )
-                    st.success(f"Resume saved successfully! ID: {resume_id}")
-                    
-                    # Additional feedback
-                    if len(processed_data['skills']) < 5:
-                        st.warning("Tip: Consider adding more technical skills to your resume for better job matches.")
-                    
+                    with st.spinner("Saving to database..."):
+                        db = Database()
+                        user_id = st.session_state.get('user_id', 1)  # Default user_id for demo
+                        resume_id = db.save_resume(
+                            user_id=user_id,
+                            resume_text=resume_text,
+                            extracted_skills=list(processed_data['skills']),
+                            location=processed_data['location'],
+                            file_path=file_path,
+                            file_type=file_type
+                        )
+                        st.success(f"Resume saved successfully! ID: {resume_id}")
+                        
+                        # Additional feedback
+                        if len(processed_data['skills']) < 5:
+                            st.warning("Tip: Consider adding more technical skills to your resume for better job matches.")
+                        
                 except Exception as e:
                     logger.error(f"Error saving resume to database: {str(e)}")
-                    st.error(f"Error saving resume to database. Please try again later.")
-                
+                    st.error("Error saving resume to database. Please try again later.")
+            
         except Exception as e:
-            logger.error(f"Error processing resume: {str(e)}")
-            st.error("An unexpected error occurred. Please try again or contact support if the issue persists.")
+            error_msg = f"An unexpected error occurred: {str(e)}"
+            logger.error(error_msg)
+            status_container.error(error_msg)
+            st.error("Please try again or contact support if the issue persists.")
+    else:
+        # Clear preview when no file is uploaded
+        preview_container.empty()
+        status_container.info("Upload a resume to begin.")
