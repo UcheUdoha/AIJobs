@@ -41,12 +41,18 @@ def apply_schema_updates():
     """Apply database schema updates with error handling"""
     db = Database()
     sql_files = [
+        'schema.sql',
         'schema_updates_email.sql',
         'schema_updates_scraping.sql',
-        'sample_job_sources.sql'
+        'schema_updates_interview.sql',
+        'schema_updates_optimization.sql',
+        'sample_job_sources.sql',
+        'sample_interview_questions.sql'
     ]
     
+    connection = None
     try:
+        connection = db.get_connection()
         for sql_file in sql_files:
             logger.info(f"Processing schema updates from {sql_file}")
             commands = split_sql_commands(sql_file)
@@ -56,24 +62,29 @@ def apply_schema_updates():
                     continue
                     
                 try:
-                    with db.conn.cursor() as cur:
+                    with connection.cursor() as cur:
                         cur.execute(command)
-                        db.conn.commit()
+                        connection.commit()
                         logger.info(f"Successfully executed command: {command[:50]}...")
                 except PostgresError as e:
                     if 'already exists' in str(e):
                         logger.info(f"Table already exists, skipping: {str(e)}")
+                        connection.rollback()
                         continue
                     logger.error(f"Error executing command: {str(e)}")
-                    db.conn.rollback()
+                    connection.rollback()
                     
         logger.info("Schema updates completed successfully")
         
     except Exception as e:
         logger.error(f"Error during schema updates: {str(e)}")
+        if connection:
+            connection.rollback()
         raise
     finally:
-        db.conn.commit()
+        if connection:
+            connection.commit()
+            db.return_connection(connection)
 
 if __name__ == "__main__":
     apply_schema_updates()
