@@ -45,6 +45,32 @@ class Database:
             logger.error(f"Error initializing database pool: {str(e)}")
             raise
 
+    @contextmanager
+    def get_connection_with_retry(self, max_retries=3):
+        """Get a database connection with retry mechanism"""
+        for attempt in range(max_retries):
+            try:
+                conn = self.get_connection()
+                yield conn
+                return
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    logger.error(f"Failed to get connection after {max_retries} attempts")
+                    raise
+                logger.warning(f"Connection attempt {attempt + 1} failed, retrying...")
+                time.sleep(1 * (attempt + 1))
+
+    def test_connection(self) -> bool:
+        """Test database connection"""
+        try:
+            with self.get_connection_with_retry() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT 1")
+                    return True
+        except Exception as e:
+            logger.error(f"Connection test failed: {str(e)}")
+            return False
+
     def get_connection(self):
         """Get a connection from the pool with thread-local storage"""
         if not hasattr(self._local, 'connection') or self._local.connection is None:
@@ -73,16 +99,18 @@ class Database:
         """Get a database cursor with automatic cleanup and error handling"""
         connection = None
         try:
-            connection = self.get_connection()
-            cursor = connection.cursor(cursor_factory=cursor_factory)
-            try:
-                yield cursor
-                connection.commit()
-            except Exception as e:
-                connection.rollback()
-                raise
-            finally:
-                cursor.close()
+            with self.get_connection_with_retry() as connection:
+                cursor = connection.cursor(cursor_factory=cursor_factory)
+                try:
+                    # Set query timeout
+                    cursor.execute(f"SET statement_timeout = {self.query_timeout * 1000}")
+                    yield cursor
+                    connection.commit()
+                except Exception as e:
+                    connection.rollback()
+                    raise
+                finally:
+                    cursor.close()
         except Exception as e:
             logger.error(f"Error in database operation: {str(e)}")
             raise
@@ -105,7 +133,7 @@ class Database:
 
     def save_resume(self, user_id: int, resume_text: str, extracted_skills: List[str],
                    location: str, file_path: str, file_type: str) -> Optional[int]:
-        """Save resume data to database"""
+        """Save resume data to database with caching"""
         try:
             with self.get_cursor() as cur:
                 cur.execute("""
@@ -119,21 +147,6 @@ class Database:
         except Exception as e:
             logger.error(f"Error saving resume: {str(e)}")
             return None
-
-    def get_bookmarks(self, user_id: int) -> List[Dict]:
-        """Get bookmarked jobs for user"""
-        try:
-            with self.get_cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute("""
-                    SELECT j.* FROM jobs j
-                    JOIN bookmarks b ON j.id = b.job_id
-                    WHERE b.user_id = %s
-                    ORDER BY b.created_at DESC
-                """, (user_id,))
-                return cur.fetchall()
-        except Exception as e:
-            logger.error(f"Error getting bookmarks: {str(e)}")
-            return []
 
     def __del__(self):
         """Cleanup pool on object destruction"""
