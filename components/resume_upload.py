@@ -13,262 +13,77 @@ import magic
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Import optional dependencies with error handling
-PDF_SUPPORT = False
-DOCX_SUPPORT = False
+# Cache expensive operations with proper TTL
+@st.cache_resource(ttl=3600)
+def get_nlp_processor():
+    return NLPProcessor()
 
-try:
-    import PyPDF2
-    PDF_SUPPORT = True
-except ImportError:
-    st.warning("PDF support is not available. Please install python-pdf2 package.")
+@st.cache_resource(ttl=3600)
+def get_db():
+    return Database()
 
-try:
-    from docx import Document
-    DOCX_SUPPORT = True
-except ImportError:
-    st.warning("DOCX support is not available. Please install python-docx package.")
+@st.cache_data(ttl=3600, max_entries=50)
+def cache_file_content(file_content: bytes, file_name: str) -> str:
+    """Cache file content with a unique key"""
+    return f"{file_name}_{hash(file_content)}"
 
-@st.cache_data(ttl=3600)  # Cache for 1 hour
-def extract_text_from_pdf(file_content: bytes) -> Tuple[Optional[str], Optional[str]]:
-    """Extract text from PDF with enhanced error handling and caching"""
-    if not PDF_SUPPORT:
-        return None, "PDF support is not available. Please upload a DOCX file instead."
-    
+@st.cache_data(ttl=3600)
+def extract_text_from_file(file_content: bytes, file_type: str) -> Tuple[Optional[str], Optional[str]]:
+    """Extract text from file with optimized chunked processing and caching"""
     try:
-        with st.spinner("Extracting text from PDF..."):
-            start_time = time.time()
-            pdf_reader = PyPDF2.PdfReader(io.BytesIO(file_content))
-            text = ""
+        # Process in chunks with a progress bar
+        chunk_size = 1024 * 1024  # 1MB chunks
+        total_size = len(file_content)
+        chunks = math.ceil(total_size / chunk_size)
+        
+        extracted_text = ""
+        for i in range(chunks):
+            start = i * chunk_size
+            end = min((i + 1) * chunk_size, total_size)
+            chunk = file_content[start:end]
             
-            # Show progress bar for page processing
-            total_pages = len(pdf_reader.pages)
-            progress_bar = st.progress(0)
+            # Process chunk based on file type
+            if file_type == 'pdf':
+                text_chunk = process_pdf_chunk(io.BytesIO(chunk))
+            else:  # docx
+                text_chunk = process_docx_chunk(io.BytesIO(chunk))
             
-            for page_num, page in enumerate(pdf_reader.pages):
-                try:
-                    text += page.extract_text() + "\n"
-                    progress_bar.progress((page_num + 1) / total_pages)
-                except Exception as e:
-                    logger.error(f"Error extracting text from page {page_num}: {str(e)}")
-                    continue
+            extracted_text += text_chunk
             
-            if not text.strip():
-                return None, "Could not extract text from PDF. The file might be scanned or protected."
+        if not extracted_text.strip():
+            return None, f"Could not extract text from {file_type.upper()} file."
             
-            logger.info(f"PDF text extraction completed in {time.time() - start_time:.2f} seconds")
-            return text, None
+        return extracted_text, None
             
     except Exception as e:
-        logger.error(f"Error processing PDF file: {str(e)}")
-        return None, f"Error processing PDF file: {str(e)}"
+        logger.error(f"Error processing {file_type} file: {str(e)}")
+        return None, f"Error processing file: {str(e)}"
 
-@st.cache_data(ttl=3600)  # Cache for 1 hour
-def extract_text_from_docx(file_content: bytes) -> Tuple[Optional[str], Optional[str]]:
-    """Extract text from DOCX with enhanced error handling and caching"""
-    if not DOCX_SUPPORT:
-        return None, "DOCX support is not available. Please upload a PDF file instead."
-    
+@st.cache_data(ttl=3600)
+def process_pdf_chunk(chunk):
+    """Process a chunk of PDF data with caching"""
     try:
-        with st.spinner("Extracting text from DOCX..."):
-            start_time = time.time()
-            doc = Document(io.BytesIO(file_content))
-            text = ""
-            
-            # Show progress for paragraph processing
-            total_paragraphs = len(doc.paragraphs)
-            progress_bar = st.progress(0)
-            
-            for idx, para in enumerate(doc.paragraphs):
-                try:
-                    text += para.text + "\n"
-                    progress_bar.progress((idx + 1) / total_paragraphs)
-                except Exception as e:
-                    logger.error(f"Error extracting paragraph text: {str(e)}")
-                    continue
-            
-            if not text.strip():
-                return None, "Could not extract text from DOCX. The file might be corrupted."
-            
-            logger.info(f"DOCX text extraction completed in {time.time() - start_time:.2f} seconds")
-            return text, None
-            
+        import PyPDF2
+        pdf_reader = PyPDF2.PdfReader(chunk)
+        return " ".join(page.extract_text() for page in pdf_reader.pages)
     except Exception as e:
-        logger.error(f"Error processing DOCX file: {str(e)}")
-        return None, f"Error processing DOCX file: {str(e)}"
+        logger.error(f"Error processing PDF chunk: {str(e)}")
+        return ""
 
-def chunk_text(text: str, chunk_size: int = 5000) -> list:
-    """Split text into chunks for efficient rendering"""
-    return [text[i:i + chunk_size] for i in range(0, len(text), chunk_size)]
-
-def render_resume_preview(resume_text: str, container) -> None:
-    """Render resume preview with improved state management and chunking"""
+@st.cache_data(ttl=3600)
+def process_docx_chunk(chunk):
+    """Process a chunk of DOCX data with caching"""
     try:
-        with container.spinner("Loading preview..."):
-            # Initialize preview container
-            preview_container = container.empty()
-            
-            # Initialize preview state in session state if not exists
-            preview_state_key = 'preview_state'
-            if preview_state_key not in st.session_state:
-                chunks = chunk_text(resume_text)
-                st.session_state[preview_state_key] = {
-                    'text': resume_text,
-                    'font_size': 'Medium',
-                    'wrap_text': True,
-                    'dark_mode': False,
-                    'current_chunk': 0,
-                    'chunks': chunks,
-                    'total_chunks': len(chunks),
-                    'show_line_numbers': False
-                }
-            
-            # Create preview container with customization options
-            with preview_container.expander("Resume Preview", expanded=True):
-                # Add preview customization options in columns
-                col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
-                
-                with col1:
-                    font_size = st.select_slider(
-                        "Font Size",
-                        options=["Small", "Medium", "Large"],
-                        value=st.session_state[preview_state_key]['font_size'],
-                        key='preview_font_size'
-                    )
-                
-                with col2:
-                    wrap_text = st.checkbox(
-                        "Wrap Text",
-                        value=st.session_state[preview_state_key]['wrap_text'],
-                        key='preview_wrap_text'
-                    )
-                
-                with col3:
-                    dark_mode = st.checkbox(
-                        "Dark Mode",
-                        value=st.session_state[preview_state_key]['dark_mode'],
-                        key='preview_dark_mode'
-                    )
-                    
-                with col4:
-                    show_line_numbers = st.checkbox(
-                        "Show Line Numbers",
-                        value=st.session_state[preview_state_key]['show_line_numbers'],
-                        key='preview_line_numbers'
-                    )
-                
-                # Update preview state
-                st.session_state[preview_state_key].update({
-                    'font_size': font_size,
-                    'wrap_text': wrap_text,
-                    'dark_mode': dark_mode,
-                    'show_line_numbers': show_line_numbers
-                })
-                
-                # Apply styling based on user preferences
-                font_sizes = {
-                    "Small": "0.8em",
-                    "Medium": "1em",
-                    "Large": "1.2em"
-                }
-                
-                background_color = "#1E1E1E" if dark_mode else "#FFFFFF"
-                text_color = "#FFFFFF" if dark_mode else "#000000"
-                
-                # Pagination for chunks
-                chunks = st.session_state[preview_state_key]['chunks']
-                total_chunks = len(chunks)
-                
-                if total_chunks > 1:
-                    col1, col2 = st.columns([4, 1])
-                    with col1:
-                        chunk_slider = st.slider(
-                            "Navigate Preview",
-                            0, total_chunks - 1,
-                            st.session_state[preview_state_key]['current_chunk'],
-                            format=f"Page %d of {total_chunks}"
-                        )
-                    with col2:
-                        st.markdown(f"<br>", unsafe_allow_html=True)
-                        if st.button("Reset View"):
-                            chunk_slider = 0
-                    
-                    st.session_state[preview_state_key]['current_chunk'] = chunk_slider
-                
-                # Create styled preview container with line numbers if enabled
-                st.markdown(
-                    f"""
-                    <style>
-                        .preview-container {{
-                            font-family: 'Courier New', monospace;
-                            font-size: {font_sizes[font_size]};
-                            white-space: {("pre-wrap" if wrap_text else "pre")};
-                            background-color: {background_color};
-                            color: {text_color};
-                            padding: 1rem;
-                            border-radius: 4px;
-                            border: 1px solid #ccc;
-                            height: 400px;
-                            overflow-y: auto;
-                            margin: 1rem 0;
-                            display: flex;
-                        }}
-                        .line-numbers {{
-                            border-right: 1px solid #ccc;
-                            padding-right: 10px;
-                            margin-right: 10px;
-                            color: {text_color};
-                            opacity: 0.5;
-                            text-align: right;
-                            user-select: none;
-                        }}
-                        .preview-content {{
-                            flex: 1;
-                        }}
-                    </style>
-                    """,
-                    unsafe_allow_html=True
-                )
-                
-                # Get current chunk of text
-                current_chunk = st.session_state[preview_state_key]['current_chunk']
-                current_text = chunks[current_chunk]
-                
-                # Create preview content with optional line numbers
-                if show_line_numbers:
-                    lines = current_text.split('\n')
-                    line_numbers = '<br>'.join(str(i) for i in range(1, len(lines) + 1))
-                    preview_content = f"""
-                    <div class="preview-container">
-                        <div class="line-numbers">{line_numbers}</div>
-                        <div class="preview-content">{current_text}</div>
-                    </div>
-                    """
-                else:
-                    preview_content = f"""
-                    <div class="preview-container">
-                        <div class="preview-content">{current_text}</div>
-                    </div>
-                    """
-                
-                st.markdown(preview_content, unsafe_allow_html=True)
-                
-                # Add download options
-                col1, col2 = st.columns([1, 4])
-                with col1:
-                    st.download_button(
-                        "Download Preview",
-                        resume_text,
-                        file_name="resume_preview.txt",
-                        mime="text/plain"
-                    )
-                
+        from docx import Document
+        doc = Document(chunk)
+        return " ".join(paragraph.text for paragraph in doc.paragraphs)
     except Exception as e:
-        logger.error(f"Error in resume preview: {str(e)}")
-        container.error(f"Error displaying preview: {str(e)}")
+        logger.error(f"Error processing DOCX chunk: {str(e)}")
+        return ""
 
+@st.cache_data(ttl=3600)
 def validate_file_type(file_content: bytes, filename: str) -> Tuple[bool, Optional[str]]:
-    """Validate file type using magic numbers"""
+    """Validate file type using magic numbers with caching"""
     try:
         mime_type = magic.from_buffer(file_content, mime=True)
         allowed_mime_types = {
@@ -288,9 +103,128 @@ def validate_file_type(file_content: bytes, filename: str) -> Tuple[bool, Option
         logger.error(f"Error validating file type: {str(e)}")
         return False, f"Error validating file: {str(e)}"
 
+def render_resume_preview(resume_text: str, container) -> None:
+    """Render resume preview with optimized state management and chunking"""
+    try:
+        # Initialize preview state if not exists
+        if 'preview_state' not in st.session_state:
+            st.session_state.preview_state = {
+                'chunk_size': 5000,
+                'current_chunk': 0,
+                'font_size': 'Medium',
+                'dark_mode': False,
+                'wrap_text': True,
+                'show_line_numbers': False
+            }
+        
+        # Chunk the text for better performance
+        chunks = [resume_text[i:i + st.session_state.preview_state['chunk_size']] 
+                 for i in range(0, len(resume_text), st.session_state.preview_state['chunk_size'])]
+        
+        # Preview controls in columns for better layout
+        col1, col2, col3, col4 = container.columns(4)
+        with col1:
+            new_font_size = st.select_slider(
+                "Font Size",
+                options=["Small", "Medium", "Large"],
+                value=st.session_state.preview_state['font_size']
+            )
+            if new_font_size != st.session_state.preview_state['font_size']:
+                st.session_state.preview_state['font_size'] = new_font_size
+                st.experimental_rerun()
+        
+        with col2:
+            new_dark_mode = st.checkbox(
+                "Dark Mode",
+                value=st.session_state.preview_state['dark_mode']
+            )
+            if new_dark_mode != st.session_state.preview_state['dark_mode']:
+                st.session_state.preview_state['dark_mode'] = new_dark_mode
+                st.experimental_rerun()
+        
+        with col3:
+            new_wrap_text = st.checkbox(
+                "Wrap Text",
+                value=st.session_state.preview_state['wrap_text']
+            )
+            if new_wrap_text != st.session_state.preview_state['wrap_text']:
+                st.session_state.preview_state['wrap_text'] = new_wrap_text
+                st.experimental_rerun()
+        
+        with col4:
+            new_show_lines = st.checkbox(
+                "Show Line Numbers",
+                value=st.session_state.preview_state['show_line_numbers']
+            )
+            if new_show_lines != st.session_state.preview_state['show_line_numbers']:
+                st.session_state.preview_state['show_line_numbers'] = new_show_lines
+                st.experimental_rerun()
+        
+        # Pagination controls if needed
+        if len(chunks) > 1:
+            st.session_state.preview_state['current_chunk'] = st.slider(
+                "Navigate Preview",
+                0, len(chunks) - 1,
+                st.session_state.preview_state['current_chunk']
+            )
+        
+        # Apply styling
+        font_sizes = {"Small": "0.8em", "Medium": "1em", "Large": "1.2em"}
+        bg_color = "#1E1E1E" if st.session_state.preview_state['dark_mode'] else "#FFFFFF"
+        text_color = "#FFFFFF" if st.session_state.preview_state['dark_mode'] else "#000000"
+        
+        # Display current chunk with styling
+        current_text = chunks[st.session_state.preview_state['current_chunk']]
+        
+        container.markdown(
+            f"""
+            <style>
+                .preview-container {{
+                    font-family: monospace;
+                    font-size: {font_sizes[st.session_state.preview_state['font_size']]};
+                    background-color: {bg_color};
+                    color: {text_color};
+                    padding: 1rem;
+                    border-radius: 4px;
+                    white-space: {'pre-wrap' if st.session_state.preview_state['wrap_text'] else 'pre'};
+                    max-height: 500px;
+                    overflow-y: auto;
+                }}
+                .line-numbers {{
+                    user-select: none;
+                    text-align: right;
+                    padding-right: 1em;
+                    color: {text_color};
+                    opacity: 0.5;
+                }}
+            </style>
+            """,
+            unsafe_allow_html=True
+        )
+        
+        if st.session_state.preview_state['show_line_numbers']:
+            lines = current_text.split('\n')
+            numbered_text = '\n'.join(
+                f'<span class="line-numbers">{i + 1}</span> {line}'
+                for i, line in enumerate(lines)
+            )
+            container.markdown(
+                f'<div class="preview-container">{numbered_text}</div>',
+                unsafe_allow_html=True
+            )
+        else:
+            container.markdown(
+                f'<div class="preview-container">{current_text}</div>',
+                unsafe_allow_html=True
+            )
+            
+    except Exception as e:
+        logger.error(f"Error in resume preview: {str(e)}")
+        container.error("Error displaying preview. Please try again.")
+
 def render_resume_upload():
     """Main resume upload handler with optimized state management"""
-    st.header("Upload Your Resume")
+    st.header("Resume Upload")
     
     # Initialize session state for upload
     if 'upload_state' not in st.session_state:
@@ -301,128 +235,98 @@ def render_resume_upload():
             'error': None
         }
     
-    # Show supported file types
-    supported_types = []
-    if PDF_SUPPORT:
-        supported_types.append("PDF")
-    if DOCX_SUPPORT:
-        supported_types.append("DOCX")
-    
-    if not supported_types:
-        st.error("No file type support available. Please contact the administrator.")
-        return
-    
-    st.info(f"Supported file types: {', '.join(supported_types)}")
-    
-    # Create upload form with improved layout
-    col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        with st.form(key='resume_upload_form', clear_on_submit=False):
-            uploaded_file = st.file_uploader(
-                "Choose your resume",
-                type=['pdf', 'docx'],
-                key="resume_uploader",
-                help="Upload your resume in PDF or DOCX format"
-            )
-            
-            submit_button = st.form_submit_button(
-                "Upload Resume",
-                help="Click to process your resume"
-            )
-            
-            if submit_button and uploaded_file is not None:
-                try:
-                    # Check if this is a new file
-                    current_file_key = f"{uploaded_file.name}_{hash(uploaded_file.getvalue())}"
+    # File upload form
+    with st.form("resume_upload_form"):
+        uploaded_file = st.file_uploader(
+            "Choose your resume file",
+            type=['pdf', 'docx'],
+            help="Upload your resume in PDF or DOCX format"
+        )
+        
+        submit = st.form_submit_button("Process Resume")
+        
+        if submit and uploaded_file:
+            try:
+                # Check if this is a new file using cached content
+                current_file_key = cache_file_content(uploaded_file.getvalue(), uploaded_file.name)
+                
+                if current_file_key != st.session_state.upload_state['file_key']:
+                    # Validate file
+                    is_valid, error = validate_file_type(
+                        uploaded_file.getvalue(),
+                        uploaded_file.name
+                    )
                     
-                    if st.session_state.upload_state['file_key'] != current_file_key:
-                        with st.spinner("Processing resume..."):
-                            # Validate file type
-                            is_valid, error = validate_file_type(
-                                uploaded_file.getvalue(),
-                                uploaded_file.name
-                            )
+                    if not is_valid:
+                        st.error(error)
+                        return
+                    
+                    # Process file with progress tracking
+                    with st.spinner("Processing resume..."):
+                        # Extract text
+                        file_type = uploaded_file.name.split('.')[-1].lower()
+                        resume_text, error = extract_text_from_file(
+                            uploaded_file.getvalue(),
+                            file_type
+                        )
+                        
+                        if error:
+                            st.error(error)
+                            return
+                        
+                        # Process with NLP (cached)
+                        nlp = get_nlp_processor()
+                        with st.spinner("Analyzing resume content..."):
+                            processed_data = nlp.process_text(resume_text)
                             
-                            if not is_valid:
-                                st.error(error)
-                                st.session_state.upload_state['error'] = error
-                                return
-                            
-                            # Process the file
-                            file_handler = FileHandler()
-                            file_path, error = file_handler.save_file(uploaded_file)
-                            
-                            if error:
-                                st.error(error)
-                                st.session_state.upload_state['error'] = error
-                                return
-                            
-                            # Extract text based on file type
-                            file_type = uploaded_file.name.split('.')[-1].lower()
-                            if file_type == 'pdf':
-                                resume_text, error = extract_text_from_pdf(uploaded_file.getvalue())
-                            else:  # docx
-                                resume_text, error = extract_text_from_docx(uploaded_file.getvalue())
-                            
-                            if error:
-                                st.error(error)
-                                st.session_state.upload_state['error'] = error
-                                return
-                            
-                            # Process resume content with chunking
-                            nlp_processor = NLPProcessor()
-                            processed_data = nlp_processor.process_text(resume_text)
-                            
-                            # Update session states
-                            st.session_state.upload_state.update({
-                                'file_key': current_file_key,
-                                'resume_text': resume_text,
-                                'processing_complete': True,
-                                'error': None
-                            })
-                            
-                            st.session_state.resume_text = resume_text
-                            st.session_state.skills = processed_data['skills']
-                            st.session_state.resume_location = processed_data['location']
-                            
-                            # Save to database
-                            db = Database()
+                        # Save to database
+                        db = get_db()
+                        file_handler = FileHandler()
+                        
+                        with st.spinner("Saving resume..."):
+                            file_path = file_handler.save_file(uploaded_file)
                             resume_id = db.save_resume(
-                                user_id=st.session_state.get('user_id', 1),
-                                resume_text=resume_text,
-                                extracted_skills=list(processed_data['skills']),
-                                location=processed_data['location'],
-                                file_path=file_path,
-                                file_type=file_type
+                                st.session_state.get('user_id', 1),
+                                resume_text,
+                                list(processed_data['skills']),
+                                processed_data['location'],
+                                file_path,
+                                file_type
                             )
                             
-                            st.success("Resume processed successfully!")
-                            
-                except Exception as e:
-                    error_msg = f"An unexpected error occurred: {str(e)}"
-                    logger.error(error_msg)
-                    st.error(error_msg)
-                    st.session_state.upload_state['error'] = error_msg
+                            if not resume_id:
+                                st.error("Failed to save resume to database")
+                                return
+                        
+                        # Update session state
+                        st.session_state.upload_state.update({
+                            'file_key': current_file_key,
+                            'resume_text': resume_text,
+                            'processing_complete': True,
+                            'error': None
+                        })
+                        
+                        st.session_state.resume_text = resume_text
+                        st.session_state.skills = processed_data['skills']
+                        
+                        st.success("Resume processed successfully!")
+                        
+            except Exception as e:
+                logger.error(f"Error processing resume: {str(e)}")
+                st.error(f"Error processing resume: {str(e)}")
+                return
     
-    # Show preview in second column with caching
-    with col2:
-        if st.session_state.upload_state.get('resume_text'):
-            render_resume_preview(st.session_state.upload_state['resume_text'], st)
-        else:
-            st.info("Upload a resume to see the preview here.")
-    
-    # Display extracted information with improved layout
-    if st.session_state.upload_state.get('processing_complete'):
-        st.subheader("Extracted Information")
+    # Show preview if processing is complete
+    if st.session_state.upload_state['processing_complete']:
+        st.subheader("Resume Preview")
+        preview_container = st.container()
+        render_resume_preview(
+            st.session_state.upload_state['resume_text'],
+            preview_container
+        )
         
-        # Display skills in a more organized layout
-        if 'skills' in st.session_state and st.session_state['skills']:
-            st.write("**Skills Detected:**")
-            skills_cols = st.columns(3)
-            for idx, skill in enumerate(sorted(st.session_state['skills'])):
-                skills_cols[idx % 3].markdown(f"- {skill}")
-        
-        # Display location with icon
-        if 'resume_location' in st.session_state and st.session_state['resume_location']:
-            st.write("📍 **Location:**", st.session_state['resume_location'])
+        # Show extracted information
+        if 'skills' in st.session_state:
+            st.subheader("Extracted Information")
+            st.write("**Skills detected:**")
+            st.write(", ".join(sorted(st.session_state.skills)))

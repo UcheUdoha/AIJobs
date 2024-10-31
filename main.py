@@ -1,4 +1,13 @@
 import streamlit as st
+
+# Must be first Streamlit command
+st.set_page_config(
+    page_title="Job Match Pro",
+    page_icon="💼",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
 from components.resume_upload import render_resume_upload
 from components.job_search import render_job_search
 from components.match_visualization import render_match_visualization
@@ -64,33 +73,32 @@ def initialize_components():
 def initialize_app():
     """Initialize application with proper error handling and loading states"""
     try:
-        with st.spinner("Initializing application..."):
-            # Add loading skeleton
-            placeholder = st.empty()
-            with placeholder:
-                st.info("Loading components...")
+        # Add loading skeleton
+        placeholder = st.empty()
+        with placeholder:
+            st.info("Loading components...")
 
-            # Initialize core components
-            db = get_db()
-            if not db:
-                st.error("Failed to connect to database. Please check your configuration.")
+        # Initialize core components
+        db = get_db()
+        if not db:
+            st.error("Failed to connect to database. Please check your configuration.")
+            return False
+
+        nlp = get_nlp()
+        if not nlp:
+            st.warning("NLP processor initialization failed. Some features may be limited.")
+
+        # Load components in chunks
+        if 'components_loaded' not in st.session_state:
+            if initialize_components():
+                st.session_state.components_loaded = True
+            else:
+                st.error("Failed to initialize core components.")
                 return False
 
-            nlp = get_nlp()
-            if not nlp:
-                st.warning("NLP processor initialization failed. Some features may be limited.")
-
-            # Load components in chunks
-            if 'components_loaded' not in st.session_state:
-                if initialize_components():
-                    st.session_state.components_loaded = True
-                else:
-                    st.error("Failed to initialize core components.")
-                    return False
-
-            # Remove loading skeleton
-            placeholder.empty()
-            return True
+        # Remove loading skeleton
+        placeholder.empty()
+        return True
 
     except Exception as e:
         st.error("Critical error initializing application. Please try again.")
@@ -100,14 +108,6 @@ def initialize_app():
 def render_app():
     """Render main application with error boundaries and loading states"""
     try:
-        # Page configuration
-        st.set_page_config(
-            page_title="Job Match Pro",
-            page_icon="💼",
-            layout="wide",
-            initial_sidebar_state="expanded"
-        )
-
         # Load custom CSS with error handling
         try:
             with open("assets/style.css") as f:
@@ -205,7 +205,6 @@ def render_app():
         logger.error(f"Critical error in application: {str(e)}")
         st.error("A critical error occurred. Please refresh the page.")
 
-# Initialize and run application
 if initialize_app():
     render_app()
 else:
