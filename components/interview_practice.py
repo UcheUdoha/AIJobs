@@ -5,7 +5,28 @@ from utils.ai_feedback import AIFeedback
 import plotly.graph_objects as go
 import plotly.express as px
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import List, Dict, Optional
+
+def get_relevant_questions(interview_db, user_skills):
+    """Get questions matching user's skills with relevance scoring"""
+    # Get questions matching user's skills
+    questions = interview_db.get_questions_by_skills(
+        skills=list(user_skills),
+        limit=None  # Get all matching questions
+    )
+    
+    # Score questions by skill relevance
+    scored_questions = []
+    for question in questions:
+        matching_skills = set(question['skill_tags']) & set(user_skills)
+        relevance_score = len(matching_skills) / len(question['skill_tags'])
+        scored_questions.append({
+            **question,
+            'relevance_score': relevance_score
+        })
+    
+    # Sort by relevance score
+    return sorted(scored_questions, key=lambda x: x['relevance_score'], reverse=True)
 
 def estimate_experience_level(skills: List[str]) -> str:
     """Estimate experience level based on number of skills"""
@@ -123,12 +144,9 @@ def render_interview_practice():
         st.write("The following skills were extracted from your resume:")
         st.write(", ".join(user_skills))
         
-        # Get filtered questions
+        # Get filtered and scored questions
         if use_skills:
-            questions = interview_db.get_questions_by_skills(
-                skills=list(user_skills),
-                limit=10
-            )
+            questions = get_relevant_questions(interview_db, user_skills)
             if not questions:
                 st.info("No skill-specific questions found. Showing general questions.")
                 questions = interview_db.get_questions(
@@ -145,11 +163,14 @@ def render_interview_practice():
             st.warning("No questions found for the selected filters")
             return
         
-        # Question selection
+        # Question selection with relevance score display
         selected_question = st.selectbox(
             "Select a question to practice",
             options=questions,
-            format_func=lambda x: f"{x['category'].title()} ({x['difficulty'].title()}) - {x['question']}"
+            format_func=lambda x: (
+                f"{x['category'].title()} ({x['difficulty'].title()}) "
+                f"[Relevance: {x.get('relevance_score', 0)*100:.0f}%] - {x['question']}"
+            )
         )
         
         # Show question context and tips
@@ -158,6 +179,7 @@ def render_interview_practice():
             **Category:** {selected_question['category'].title()}  
             **Difficulty:** {selected_question['difficulty'].title()}
             **Related Skills:** {', '.join(selected_question['skill_tags'])}
+            **Relevance Score:** {selected_question.get('relevance_score', 0)*100:.0f}%
             
             **Tips for this type of question:**
             - For behavioral questions, use the STAR method (Situation, Task, Action, Result)
@@ -243,15 +265,13 @@ def render_interview_practice():
         if 'mock_interview' not in st.session_state:
             if st.button("Start Mock Interview"):
                 # Initialize mock interview with questions based on user's skills
+                scored_questions = get_relevant_questions(interview_db, user_skills)
                 questions = []
-                if use_skills:
-                    # Get skill-specific questions for each category
-                    for cat in ['behavioral', 'technical', 'system_design']:
-                        cat_questions = interview_db.get_questions_by_skills(
-                            skills=list(user_skills),
-                            limit=2
-                        )
-                        questions.extend(cat_questions)
+                
+                # Get top relevant questions for each category
+                for cat in ['behavioral', 'technical', 'system_design']:
+                    cat_questions = [q for q in scored_questions if q['category'] == cat][:2]
+                    questions.extend(cat_questions)
                 
                 # If not enough skill-specific questions, add general ones
                 if len(questions) < 6:
@@ -280,9 +300,11 @@ def render_interview_practice():
                 st.markdown(f"### Question {current_q + 1} of {len(mock['questions'])}")
                 st.markdown(f"**{question['question']}**")
                 
-                # Show related skills
+                # Show related skills and relevance
                 if question['skill_tags']:
                     st.write("Related skills:", ", ".join(question['skill_tags']))
+                    if 'relevance_score' in question:
+                        st.write(f"Question relevance: {question['relevance_score']*100:.0f}%")
                 
                 response = st.text_area("Your response", height=200)
                 
@@ -317,6 +339,8 @@ def render_interview_practice():
                         st.markdown(f"**Question:** {resp['question']['question']}")
                         if resp['question']['skill_tags']:
                             st.markdown(f"**Related Skills:** {', '.join(resp['question']['skill_tags'])}")
+                            if 'relevance_score' in resp['question']:
+                                st.markdown(f"**Question Relevance:** {resp['question']['relevance_score']*100:.0f}%")
                         st.markdown(f"**Your Response:** {resp['response']}")
                         st.markdown(f"**Feedback:** {resp['analysis']['feedback']}")
                 
