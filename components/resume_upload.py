@@ -7,6 +7,7 @@ import logging
 import time
 from typing import Tuple, Optional
 import math
+import magic
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -35,23 +36,29 @@ def extract_text_from_pdf(file_content: bytes) -> Tuple[Optional[str], Optional[
         return None, "PDF support is not available. Please upload a DOCX file instead."
     
     try:
-        start_time = time.time()
-        pdf_reader = PyPDF2.PdfReader(io.BytesIO(file_content))
-        text = ""
-        
-        for page_num, page in enumerate(pdf_reader.pages):
-            try:
-                text += page.extract_text() + "\n"
-            except Exception as e:
-                logger.error(f"Error extracting text from page {page_num}: {str(e)}")
-                continue
-        
-        if not text.strip():
-            return None, "Could not extract text from PDF. The file might be scanned or protected."
-        
-        logger.info(f"PDF text extraction completed in {time.time() - start_time:.2f} seconds")
-        return text, None
-        
+        with st.spinner("Extracting text from PDF..."):
+            start_time = time.time()
+            pdf_reader = PyPDF2.PdfReader(io.BytesIO(file_content))
+            text = ""
+            
+            # Show progress bar for page processing
+            total_pages = len(pdf_reader.pages)
+            progress_bar = st.progress(0)
+            
+            for page_num, page in enumerate(pdf_reader.pages):
+                try:
+                    text += page.extract_text() + "\n"
+                    progress_bar.progress((page_num + 1) / total_pages)
+                except Exception as e:
+                    logger.error(f"Error extracting text from page {page_num}: {str(e)}")
+                    continue
+            
+            if not text.strip():
+                return None, "Could not extract text from PDF. The file might be scanned or protected."
+            
+            logger.info(f"PDF text extraction completed in {time.time() - start_time:.2f} seconds")
+            return text, None
+            
     except Exception as e:
         logger.error(f"Error processing PDF file: {str(e)}")
         return None, f"Error processing PDF file: {str(e)}"
@@ -63,23 +70,29 @@ def extract_text_from_docx(file_content: bytes) -> Tuple[Optional[str], Optional
         return None, "DOCX support is not available. Please upload a PDF file instead."
     
     try:
-        start_time = time.time()
-        doc = Document(io.BytesIO(file_content))
-        text = ""
-        
-        for para in doc.paragraphs:
-            try:
-                text += para.text + "\n"
-            except Exception as e:
-                logger.error(f"Error extracting paragraph text: {str(e)}")
-                continue
-        
-        if not text.strip():
-            return None, "Could not extract text from DOCX. The file might be corrupted."
-        
-        logger.info(f"DOCX text extraction completed in {time.time() - start_time:.2f} seconds")
-        return text, None
-        
+        with st.spinner("Extracting text from DOCX..."):
+            start_time = time.time()
+            doc = Document(io.BytesIO(file_content))
+            text = ""
+            
+            # Show progress for paragraph processing
+            total_paragraphs = len(doc.paragraphs)
+            progress_bar = st.progress(0)
+            
+            for idx, para in enumerate(doc.paragraphs):
+                try:
+                    text += para.text + "\n"
+                    progress_bar.progress((idx + 1) / total_paragraphs)
+                except Exception as e:
+                    logger.error(f"Error extracting paragraph text: {str(e)}")
+                    continue
+            
+            if not text.strip():
+                return None, "Could not extract text from DOCX. The file might be corrupted."
+            
+            logger.info(f"DOCX text extraction completed in {time.time() - start_time:.2f} seconds")
+            return text, None
+            
     except Exception as e:
         logger.error(f"Error processing DOCX file: {str(e)}")
         return None, f"Error processing DOCX file: {str(e)}"
@@ -91,161 +104,189 @@ def chunk_text(text: str, chunk_size: int = 5000) -> list:
 def render_resume_preview(resume_text: str, container) -> None:
     """Render resume preview with improved state management and chunking"""
     try:
-        # Initialize preview state in session state if not exists
-        preview_state_key = 'preview_state'
-        if preview_state_key not in st.session_state:
-            st.session_state[preview_state_key] = {
-                'text': resume_text,
-                'font_size': 'Medium',
-                'wrap_text': True,
-                'dark_mode': False,
-                'current_chunk': 0,
-                'chunks': chunk_text(resume_text),
-                'show_line_numbers': False
-            }
-        
-        # Create preview container with customization options
-        with container.expander("Resume Preview", expanded=True):
-            # Add preview customization options in columns
-            col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
+        with container.spinner("Loading preview..."):
+            # Initialize preview container
+            preview_container = container.empty()
             
-            with col1:
-                font_size = st.select_slider(
-                    "Font Size",
-                    options=["Small", "Medium", "Large"],
-                    value=st.session_state[preview_state_key]['font_size'],
-                    key='preview_font_size'
-                )
+            # Initialize preview state in session state if not exists
+            preview_state_key = 'preview_state'
+            if preview_state_key not in st.session_state:
+                chunks = chunk_text(resume_text)
+                st.session_state[preview_state_key] = {
+                    'text': resume_text,
+                    'font_size': 'Medium',
+                    'wrap_text': True,
+                    'dark_mode': False,
+                    'current_chunk': 0,
+                    'chunks': chunks,
+                    'total_chunks': len(chunks),
+                    'show_line_numbers': False
+                }
             
-            with col2:
-                wrap_text = st.checkbox(
-                    "Wrap Text",
-                    value=st.session_state[preview_state_key]['wrap_text'],
-                    key='preview_wrap_text'
-                )
-            
-            with col3:
-                dark_mode = st.checkbox(
-                    "Dark Mode",
-                    value=st.session_state[preview_state_key]['dark_mode'],
-                    key='preview_dark_mode'
-                )
+            # Create preview container with customization options
+            with preview_container.expander("Resume Preview", expanded=True):
+                # Add preview customization options in columns
+                col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
                 
-            with col4:
-                show_line_numbers = st.checkbox(
-                    "Show Line Numbers",
-                    value=st.session_state[preview_state_key]['show_line_numbers'],
-                    key='preview_line_numbers'
-                )
-            
-            # Update preview state
-            st.session_state[preview_state_key].update({
-                'font_size': font_size,
-                'wrap_text': wrap_text,
-                'dark_mode': dark_mode,
-                'show_line_numbers': show_line_numbers
-            })
-            
-            # Apply styling based on user preferences
-            font_sizes = {
-                "Small": "0.8em",
-                "Medium": "1em",
-                "Large": "1.2em"
-            }
-            
-            background_color = "#1E1E1E" if dark_mode else "#FFFFFF"
-            text_color = "#FFFFFF" if dark_mode else "#000000"
-            
-            # Pagination for chunks
-            chunks = st.session_state[preview_state_key]['chunks']
-            total_chunks = len(chunks)
-            
-            if total_chunks > 1:
-                col1, col2 = st.columns([4, 1])
                 with col1:
-                    chunk_slider = st.slider(
-                        "Navigate Preview",
-                        0, total_chunks - 1,
-                        st.session_state[preview_state_key]['current_chunk'],
-                        format=f"Page %d of {total_chunks}"
+                    font_size = st.select_slider(
+                        "Font Size",
+                        options=["Small", "Medium", "Large"],
+                        value=st.session_state[preview_state_key]['font_size'],
+                        key='preview_font_size'
                     )
-                with col2:
-                    st.markdown(f"<br>", unsafe_allow_html=True)
-                    if st.button("Reset View"):
-                        chunk_slider = 0
                 
-                st.session_state[preview_state_key]['current_chunk'] = chunk_slider
-            
-            # Create styled preview container with line numbers if enabled
-            st.markdown(
-                f"""
-                <style>
-                    .preview-container {{
-                        font-family: 'Courier New', monospace;
-                        font-size: {font_sizes[font_size]};
-                        white-space: {("pre-wrap" if wrap_text else "pre")};
-                        background-color: {background_color};
-                        color: {text_color};
-                        padding: 1rem;
-                        border-radius: 4px;
-                        border: 1px solid #ccc;
-                        height: 400px;
-                        overflow-y: auto;
-                        margin: 1rem 0;
-                        display: flex;
-                    }}
-                    .line-numbers {{
-                        border-right: 1px solid #ccc;
-                        padding-right: 10px;
-                        margin-right: 10px;
-                        color: {text_color};
-                        opacity: 0.5;
-                        text-align: right;
-                        user-select: none;
-                    }}
-                    .preview-content {{
-                        flex: 1;
-                    }}
-                </style>
-                """,
-                unsafe_allow_html=True
-            )
-            
-            # Get current chunk of text
-            current_text = chunks[st.session_state[preview_state_key]['current_chunk']]
-            
-            # Create preview content with optional line numbers
-            if show_line_numbers:
-                lines = current_text.split('\n')
-                line_numbers = '<br>'.join(str(i) for i in range(1, len(lines) + 1))
-                preview_content = f"""
-                <div class="preview-container">
-                    <div class="line-numbers">{line_numbers}</div>
-                    <div class="preview-content">{current_text}</div>
-                </div>
-                """
-            else:
-                preview_content = f"""
-                <div class="preview-container">
-                    <div class="preview-content">{current_text}</div>
-                </div>
-                """
-            
-            st.markdown(preview_content, unsafe_allow_html=True)
-            
-            # Add download options
-            col1, col2 = st.columns([1, 4])
-            with col1:
-                st.download_button(
-                    "Download Preview",
-                    resume_text,
-                    file_name="resume_preview.txt",
-                    mime="text/plain"
+                with col2:
+                    wrap_text = st.checkbox(
+                        "Wrap Text",
+                        value=st.session_state[preview_state_key]['wrap_text'],
+                        key='preview_wrap_text'
+                    )
+                
+                with col3:
+                    dark_mode = st.checkbox(
+                        "Dark Mode",
+                        value=st.session_state[preview_state_key]['dark_mode'],
+                        key='preview_dark_mode'
+                    )
+                    
+                with col4:
+                    show_line_numbers = st.checkbox(
+                        "Show Line Numbers",
+                        value=st.session_state[preview_state_key]['show_line_numbers'],
+                        key='preview_line_numbers'
+                    )
+                
+                # Update preview state
+                st.session_state[preview_state_key].update({
+                    'font_size': font_size,
+                    'wrap_text': wrap_text,
+                    'dark_mode': dark_mode,
+                    'show_line_numbers': show_line_numbers
+                })
+                
+                # Apply styling based on user preferences
+                font_sizes = {
+                    "Small": "0.8em",
+                    "Medium": "1em",
+                    "Large": "1.2em"
+                }
+                
+                background_color = "#1E1E1E" if dark_mode else "#FFFFFF"
+                text_color = "#FFFFFF" if dark_mode else "#000000"
+                
+                # Pagination for chunks
+                chunks = st.session_state[preview_state_key]['chunks']
+                total_chunks = len(chunks)
+                
+                if total_chunks > 1:
+                    col1, col2 = st.columns([4, 1])
+                    with col1:
+                        chunk_slider = st.slider(
+                            "Navigate Preview",
+                            0, total_chunks - 1,
+                            st.session_state[preview_state_key]['current_chunk'],
+                            format=f"Page %d of {total_chunks}"
+                        )
+                    with col2:
+                        st.markdown(f"<br>", unsafe_allow_html=True)
+                        if st.button("Reset View"):
+                            chunk_slider = 0
+                    
+                    st.session_state[preview_state_key]['current_chunk'] = chunk_slider
+                
+                # Create styled preview container with line numbers if enabled
+                st.markdown(
+                    f"""
+                    <style>
+                        .preview-container {{
+                            font-family: 'Courier New', monospace;
+                            font-size: {font_sizes[font_size]};
+                            white-space: {("pre-wrap" if wrap_text else "pre")};
+                            background-color: {background_color};
+                            color: {text_color};
+                            padding: 1rem;
+                            border-radius: 4px;
+                            border: 1px solid #ccc;
+                            height: 400px;
+                            overflow-y: auto;
+                            margin: 1rem 0;
+                            display: flex;
+                        }}
+                        .line-numbers {{
+                            border-right: 1px solid #ccc;
+                            padding-right: 10px;
+                            margin-right: 10px;
+                            color: {text_color};
+                            opacity: 0.5;
+                            text-align: right;
+                            user-select: none;
+                        }}
+                        .preview-content {{
+                            flex: 1;
+                        }}
+                    </style>
+                    """,
+                    unsafe_allow_html=True
                 )
-            
+                
+                # Get current chunk of text
+                current_chunk = st.session_state[preview_state_key]['current_chunk']
+                current_text = chunks[current_chunk]
+                
+                # Create preview content with optional line numbers
+                if show_line_numbers:
+                    lines = current_text.split('\n')
+                    line_numbers = '<br>'.join(str(i) for i in range(1, len(lines) + 1))
+                    preview_content = f"""
+                    <div class="preview-container">
+                        <div class="line-numbers">{line_numbers}</div>
+                        <div class="preview-content">{current_text}</div>
+                    </div>
+                    """
+                else:
+                    preview_content = f"""
+                    <div class="preview-container">
+                        <div class="preview-content">{current_text}</div>
+                    </div>
+                    """
+                
+                st.markdown(preview_content, unsafe_allow_html=True)
+                
+                # Add download options
+                col1, col2 = st.columns([1, 4])
+                with col1:
+                    st.download_button(
+                        "Download Preview",
+                        resume_text,
+                        file_name="resume_preview.txt",
+                        mime="text/plain"
+                    )
+                
     except Exception as e:
         logger.error(f"Error in resume preview: {str(e)}")
         container.error(f"Error displaying preview: {str(e)}")
+
+def validate_file_type(file_content: bytes, filename: str) -> Tuple[bool, Optional[str]]:
+    """Validate file type using magic numbers"""
+    try:
+        mime_type = magic.from_buffer(file_content, mime=True)
+        allowed_mime_types = {
+            'application/pdf': '.pdf',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx'
+        }
+        
+        file_ext = filename.lower().split('.')[-1]
+        if mime_type not in allowed_mime_types:
+            return False, "Invalid file type. Please upload a PDF or DOCX file."
+            
+        if allowed_mime_types[mime_type] != f'.{file_ext}':
+            return False, "File extension does not match the actual file type."
+            
+        return True, None
+    except Exception as e:
+        logger.error(f"Error validating file type: {str(e)}")
+        return False, f"Error validating file: {str(e)}"
 
 def render_resume_upload():
     """Main resume upload handler with optimized state management"""
@@ -297,6 +338,17 @@ def render_resume_upload():
                     
                     if st.session_state.upload_state['file_key'] != current_file_key:
                         with st.spinner("Processing resume..."):
+                            # Validate file type
+                            is_valid, error = validate_file_type(
+                                uploaded_file.getvalue(),
+                                uploaded_file.name
+                            )
+                            
+                            if not is_valid:
+                                st.error(error)
+                                st.session_state.upload_state['error'] = error
+                                return
+                            
                             # Process the file
                             file_handler = FileHandler()
                             file_path, error = file_handler.save_file(uploaded_file)
